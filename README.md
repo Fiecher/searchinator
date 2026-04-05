@@ -86,12 +86,13 @@ e, _ := engine.NewEngine(engine.FuzzyConfig(vocab, 1))
 Every component is an interface — replace any part of the pipeline:
 
 ```go  
-cfg := engine.Config{  
-    Analyzer: analysis.NewPipelineAnalyzer(        analysis.NewWhitespaceTokenizer(),        analysis.NewLowercaseFilter(),        analysis.NewPunctuationFilter(),        myCustomStemmer,   // implement analysis.TokenFilter    ),    Ranker: ranking.NewBM25(ranking.BM25Params{        K1: 1.5,  // term frequency saturation (default 1.2)        B:  0.6,  // length normalization      (default 0.75)    }),}  
+cfg := engine.Config{
+Analyzer: analysis.NewPipelineAnalyzer(        analysis.NewWhitespaceTokenizer(), analysis.NewLowercaseFilter(), analysis.NewPunctuationFilter(), myCustomStemmer, // implement analysis.TokenFilter    ),    Ranker: ranking.NewBM25(ranking.BM25Params{        K1: 1.5,  // term frequency saturation (default 1.2)        B:  0.6,  // length normalization      (default 0.75)    }),}  
 e, _ := engine.NewEngine(cfg)  
 ```  
 
 ## Info
+
 ### Fuzzy Search
 
 Fuzzy search tolerates typos by expanding query tokens to the closest matching
@@ -100,34 +101,34 @@ terms in the index vocabulary using Damerau-Levenshtein edit distance.
 
 ```go  
 // Step 1: build a plain engine and index your documents  
-plain, _ := engine.NewEngine(engine.DefaultConfig())  
-plain.Index(docs)  
-  
+plain, _ := engine.NewEngine(engine.DefaultConfig())
+plain.Index(docs)
+
 // Step 2: extract vocabulary from the index  
-vocab := engine.VocabularyFromIndex(plain)  
-  
+vocab := engine.VocabularyFromIndex(plain)
+
 // Step 3: build a fuzzy engine with the same documents  
 fe, _ := engine.NewEngine(engine.FuzzyConfig(vocab, 1)) // max distance = 1  
-fe.Index(docs)  
-  
+fe.Index(docs)
+
 // Step 4: search with typos  
-results, _ := fe.Search("concurency")  // finds "concurrency"  
-results, _ = fe.Search("compied")      // finds "compiled"  
-results, _ = fe.Search("saftey")       // finds "safety"  
+results, _ := fe.Search("concurency") // finds "concurrency"  
+results, _ = fe.Search("compied") // finds "compiled"  
+results, _ = fe.Search("saftey") // finds "safety"  
 ```  
 
 **Recommended `maxDistance` values:**
 
-| Value | Use case |
-|---|---|
-| `1` | Catches most single-character typos — transpositions, deletions, insertions, substitutions |
-| `2` | Catches harder typos; may over-expand on short terms (2–3 characters) |
+| Value | Use case                                                                                   |
+|-------|--------------------------------------------------------------------------------------------|
+| `1`   | Catches most single-character typos — transpositions, deletions, insertions, substitutions |
+| `2`   | Catches harder typos; may over-expand on short terms (2–3 characters)                      |
 
 ### Document Model
 
 ```go  
-type Document struct {  
-    ID   string         // unique identifier -- required    Text string         // full text to be indexed and searched    Meta map[string]any // arbitrary metadata -- stored and returned, never indexed}  
+type Document struct {
+ID   string // unique identifier -- required    Text string         // full text to be indexed and searched    Meta map[string]any // arbitrary metadata -- stored and returned, never indexed}  
 ```  
 
 `Meta` can hold anything: URLs, timestamps, author names, tags. It is returned
@@ -137,8 +138,8 @@ in search results exactly as provided.
 ### Search Results
 
 ```go  
-type Result struct {  
-    Document Document // the full document including Meta    Score    float64  // BM25 relevance score}  
+type Result struct {
+Document Document // the full document including Meta    Score    float64  // BM25 relevance score}  
 ```  
 
 Results are always sorted by `Score` descending. Ties are broken
@@ -149,9 +150,9 @@ alphabetically by `Document.ID` for deterministic output.
 
 BM25 is controlled by two parameters:
 
-| Parameter | Default | Effect |
-|---|---|---|
-| `K1` | `1.2` | Term frequency saturation. Higher values give more weight to repeated terms. Typical range: 1.2–2.0 |
-| `B` | `0.75` | Length normalization. `0` = no normalization, `1` = full normalization |
+| Parameter | Default | Effect                                                                                              |
+|-----------|---------|-----------------------------------------------------------------------------------------------------|
+| `K1`      | `1.2`   | Term frequency saturation. Higher values give more weight to repeated terms. Typical range: 1.2–2.0 |
+| `B`       | `0.75`  | Length normalization. `0` = no normalization, `1` = full normalization                              |
 
 The defaults follow the original Okapi BM25 paper and work well for most corpora.
