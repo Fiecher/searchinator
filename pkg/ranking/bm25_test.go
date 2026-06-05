@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/Fiecher/searchinator"
-	"github.com/Fiecher/searchinator/index"
-	"github.com/Fiecher/searchinator/ranking"
+	"github.com/Fiecher/searchinator/pkg/index"
+	"github.com/Fiecher/searchinator/pkg/ranking"
 )
 
 func buildIndex(docs []searchinator.Document, tokens [][]string) *index.InvertedIndex {

@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	"github.com/Fiecher/searchinator"
-	"github.com/Fiecher/searchinator/analysis"
-	"github.com/Fiecher/searchinator/engine"
-	"github.com/Fiecher/searchinator/ranking"
+	"github.com/Fiecher/searchinator/pkg/analysis"
+	"github.com/Fiecher/searchinator/pkg/engine"
+	"github.com/Fiecher/searchinator/pkg/ranking"
 )
 
 func defaultEngine(t *testing.T) *engine.Engine {

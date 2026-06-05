@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/Fiecher/searchinator/analysis"
+	"github.com/Fiecher/searchinator/pkg/analysis"
 )
 
 func TestFuzzyFilter_ExactMatch(t *testing.T) {

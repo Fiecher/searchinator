@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/Fiecher/searchinator"
-	"github.com/Fiecher/searchinator/engine"
+	"github.com/Fiecher/searchinator/pkg/engine"
 )
 
 func corpusOfSize(n int) []searchinator.Document {

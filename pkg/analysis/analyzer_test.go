@@ -1,4 +1,4 @@
-package analysis_test
+package analysis
 
 import (
 	"reflect"

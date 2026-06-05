@@ -1,4 +1,4 @@
-package index_test
+package index
 
 import (
 	"testing"

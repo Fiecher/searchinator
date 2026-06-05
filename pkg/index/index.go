@@ -4,6 +4,7 @@ import "github.com/Fiecher/searchinator"
 
 type Index interface {
 	Add(doc searchinator.Document, tokens []string) error
+	Remove(docID string) error
 	Get(term string) []string
 	GetDocument(id string) (searchinator.Document, bool)
 	DocumentCount() int
@@ -11,4 +12,7 @@ type Index interface {
 	DocumentFrequency(term string) int
 	AverageDocumentLength() float64
 	DocumentLength(docID string) int
+	Terms() []string
+	Positions(term, docID string) []int
+	DocumentIDs() []string
 }

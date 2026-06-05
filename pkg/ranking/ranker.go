@@ -2,7 +2,7 @@ package ranking
 
 import (
 	"github.com/Fiecher/searchinator"
-	"github.com/Fiecher/searchinator/index"
+	"github.com/Fiecher/searchinator/pkg/index"
 )
 
 type Ranker interface {

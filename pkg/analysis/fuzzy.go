@@ -18,8 +18,18 @@ func (f *FuzzyFilter) Filter(tokens []string) []string {
 
 	for _, token := range tokens {
 		matched := false
+		tokenLen := len([]rune(token))
 
 		for _, term := range f.vocabulary {
+
+			diff := len([]rune(term)) - tokenLen
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > f.maxDistance {
+				continue
+			}
+
 			d := levenshtein(token, term)
 			if d <= f.maxDistance {
 				if _, exists := seen[term]; !exists {
@@ -39,6 +49,10 @@ func (f *FuzzyFilter) Filter(tokens []string) []string {
 	}
 
 	return out
+}
+
+func EditDistance(a, b string) int {
+	return levenshtein(a, b)
 }
 
 func levenshtein(a, b string) int {
