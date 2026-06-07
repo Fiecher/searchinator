@@ -3,4 +3,4 @@ url: https://haskell.org
 year: 1990
 paradigm: functional
 ---
-Haskell is a purely functional programming language with strong static typing and lazy evaluation. Haskell features type inference and supports higher order functions and monads.
+Haskell — чисто функциональный язык программирования со строгой статической типизацией и ленивыми вычислениями. Haskell поддерживает вывод типов, функции высшего порядка и монады.

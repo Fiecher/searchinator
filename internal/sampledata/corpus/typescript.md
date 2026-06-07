@@ -3,4 +3,5 @@ url: https://typescriptlang.org
 year: 2012
 paradigm: multi
 ---
-TypeScript is a strongly typed programming language that builds on JavaScript giving you better tooling at any scale. TypeScript adds optional static typing and class based object oriented programming to JavaScript.
+TypeScript — строго типизированный язык программирования, построенный поверх JavaScript. TypeScript добавляет статическую типизацию и объектно-ориентированное программирование на основе классов к языку JavaScript.
+asdas
