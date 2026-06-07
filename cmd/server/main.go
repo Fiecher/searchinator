@@ -8,14 +8,15 @@ import (
 	"strconv"
 
 	"github.com/Fiecher/searchinator"
-	"github.com/Fiecher/searchinator/pkg/analysis"
+	"github.com/Fiecher/searchinator/internal/sampledata"
 	"github.com/Fiecher/searchinator/pkg/engine"
 	"github.com/Fiecher/searchinator/pkg/index"
-	"github.com/Fiecher/searchinator/pkg/ranking"
+	"github.com/Fiecher/searchinator/pkg/semantic"
 )
 
 type server struct {
-	engine *engine.Engine
+	engine   *engine.Engine
+	semantic *semantic.Engine
 }
 
 func main() {
@@ -23,16 +24,7 @@ func main() {
 	data := flag.String("data", "", "directory for a durable segmented index; empty = in-memory")
 	flag.Parse()
 
-	cfg := engine.Config{
-		Analyzer: analysis.NewPipelineAnalyzer(
-			analysis.NewWhitespaceTokenizer(),
-			analysis.NewLowercaseFilter(),
-			analysis.NewPunctuationFilter(),
-			analysis.NewStopWordsFilter(analysis.DefaultEnglishStopWords()),
-			analysis.NewPorterStemmer(),
-		),
-		Ranker: ranking.NewBM25(ranking.DefaultBM25Params()),
-	}
+	cfg := engine.BilingualConfig()
 
 	var e *engine.Engine
 	var err error
@@ -49,11 +41,24 @@ func main() {
 		if e, err = engine.NewEngine(cfg); err != nil {
 			log.Fatal(err)
 		}
+
+		if err = e.Index(sampledata.Corpus()); err != nil {
+			log.Fatal(err)
+		}
 	}
 
-	s := &server{engine: e}
+	sem, err := semantic.NewEngine(semantic.NewHashEmbedder(256), semantic.NewBruteForceIndex())
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err = sem.Index(sampledata.Corpus()); err != nil {
+		log.Fatal(err)
+	}
+
+	s := &server{engine: e, semantic: sem}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/search", s.handleSearch)
+	mux.HandleFunc("/semantic", s.handleSemantic)
 	mux.HandleFunc("/searchbool", s.handleSearchBool)
 	mux.HandleFunc("/wildcard", s.handleWildcard)
 	mux.HandleFunc("/suggest", s.handleSuggest)
@@ -83,6 +88,13 @@ func (s *server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	results, err := s.engine.SearchN(q, limit)
+	writeResult(w, map[string]any{"query": q, "hits": toHits(results)}, err)
+}
+
+func (s *server) handleSemantic(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	results, err := s.semantic.Search(q, limit)
 	writeResult(w, map[string]any{"query": q, "hits": toHits(results)}, err)
 }
 

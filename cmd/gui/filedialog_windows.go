@@ -45,6 +45,29 @@ const (
 var (
 	comdlg32            = windows.NewLazySystemDLL("comdlg32.dll")
 	procGetOpenFileName = comdlg32.NewProc("GetOpenFileNameW")
+
+	shell32                 = windows.NewLazySystemDLL("shell32.dll")
+	procSHBrowseForFolder   = shell32.NewProc("SHBrowseForFolderW")
+	procSHGetPathFromIDList = shell32.NewProc("SHGetPathFromIDListW")
+
+	ole32             = windows.NewLazySystemDLL("ole32.dll")
+	procCoTaskMemFree = ole32.NewProc("CoTaskMemFree")
+)
+
+type browseInfo struct {
+	hwndOwner      uintptr
+	pidlRoot       uintptr
+	pszDisplayName *uint16
+	lpszTitle      *uint16
+	ulFlags        uint32
+	lpfn           uintptr
+	lParam         uintptr
+	iImage         int32
+}
+
+const (
+	bifReturnOnlyFSDirs = 0x00000001
+	bifEditBox          = 0x00000010
 )
 
 const nativeFileDialogAvailable = true
@@ -79,6 +102,35 @@ func nativeOpenFile(title, filterName string, exts []string) (path string, ok bo
 	runtime.KeepAlive(titlePtr)
 	runtime.KeepAlive(&ofn)
 
+	if r == 0 {
+		return "", false, nil
+	}
+	return windows.UTF16ToString(buf), true, nil
+}
+
+func nativeOpenFolder(title string) (path string, ok bool, err error) {
+	titlePtr, _ := windows.UTF16PtrFromString(title)
+	display := make([]uint16, windows.MAX_PATH)
+
+	bi := browseInfo{
+		pszDisplayName: &display[0],
+		lpszTitle:      titlePtr,
+		ulFlags:        bifReturnOnlyFSDirs | bifEditBox,
+	}
+	pidl, _, _ := procSHBrowseForFolder.Call(uintptr(unsafe.Pointer(&bi)))
+
+	runtime.KeepAlive(titlePtr)
+	runtime.KeepAlive(display)
+	runtime.KeepAlive(&bi)
+
+	if pidl == 0 {
+		return "", false, nil
+	}
+	defer procCoTaskMemFree.Call(pidl)
+
+	buf := make([]uint16, 4096)
+	r, _, _ := procSHGetPathFromIDList.Call(pidl, uintptr(unsafe.Pointer(&buf[0])))
+	runtime.KeepAlive(buf)
 	if r == 0 {
 		return "", false, nil
 	}

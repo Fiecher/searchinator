@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -23,6 +25,7 @@ import (
 	"github.com/Fiecher/searchinator/pkg/highlight"
 	"github.com/Fiecher/searchinator/pkg/index"
 	"github.com/Fiecher/searchinator/pkg/ranking"
+	"github.com/Fiecher/searchinator/pkg/semantic"
 )
 
 //go:embed icon.svg
@@ -37,16 +40,22 @@ type ui struct {
 	tfidf *engine.Engine
 	fuzzy *engine.Engine
 
-	ranker    string
-	useFuzzy  bool
-	boolMode  bool
-	fuzzyDist int
-	dataDir   string
+	predictor semantic.WordPredictor
+
+	analyzer analysis.Analyzer
+
+	ranker     string
+	useFuzzy   bool
+	boolMode   bool
+	fuzzyDist  int
+	dataDir    string
+	bm25Params ranking.BM25Params
 
 	results     []searchinator.Result
 	resultSpans [][]highlight.Span
 	occurrences int
 	query       string
+	predicted   []string
 	busy        bool
 
 	resultsBox *fyne.Container
@@ -59,10 +68,10 @@ func main() {
 	data := flag.String("data", "", "directory for a durable segmented index; empty = in-memory only")
 	flag.Parse()
 
-	u := &ui{ranker: "BM25", fuzzyDist: 1, dataDir: *data}
+	u := &ui{ranker: "BM25", fuzzyDist: 1, dataDir: *data, bm25Params: ranking.DefaultBM25Params()}
 
 	var err error
-	bm25cfg := englishConfig(ranking.NewBM25(ranking.DefaultBM25Params()))
+	bm25cfg := searchConfig(ranking.NewBM25(u.bm25Params))
 	if *data != "" {
 
 		idx, oerr := index.OpenSegmented(*data)
@@ -92,12 +101,15 @@ func main() {
 		}
 	}
 
-	if u.tfidf, err = engine.NewEngine(englishConfig(ranking.NewTFIDF())); err != nil {
+	if u.tfidf, err = engine.NewEngine(searchConfig(ranking.NewTFIDF())); err != nil {
 		fatal(err)
 	}
 	if err = u.tfidf.Index(u.corpus); err != nil {
 		fatal(err)
 	}
+
+	u.analyzer = searchAnalyzer()
+	u.predictor = semantic.NewCorpusPredictor(u.corpus, u.analyzer.Analyze)
 
 	a := app.New()
 	a.SetIcon(appIcon)
@@ -119,21 +131,32 @@ func (u *ui) build(w fyne.Window) fyne.CanvasObject {
 	searchBtn := widget.NewButtonWithIcon("Search", theme.SearchIcon(), search)
 	searchBtn.Importance = widget.HighImportance
 
-	rankerSel := widget.NewSelect([]string{"BM25", "TF-IDF"}, func(v string) {
+	var fuzzyChk, boolChk *widget.Check
+	rankerSel := widget.NewSelect([]string{"BM25", "TF-IDF", "Semantic"}, func(v string) {
 		u.ranker = v
+
+		if v == "Semantic" {
+			u.useFuzzy, u.boolMode = false, false
+			fuzzyChk.SetChecked(false)
+			boolChk.SetChecked(false)
+			fuzzyChk.Disable()
+			boolChk.Disable()
+		} else {
+			fuzzyChk.Enable()
+			boolChk.Enable()
+		}
 		if u.query != "" {
 			u.runSearch(u.query)
 		}
 	})
-	rankerSel.SetSelected("BM25")
 
-	fuzzyChk := widget.NewCheck("Fuzzy", func(on bool) {
+	fuzzyChk = widget.NewCheck("Fuzzy", func(on bool) {
 		u.useFuzzy = on
 		if u.query != "" {
 			u.runSearch(u.query)
 		}
 	})
-	boolChk := widget.NewCheck("Boolean mode", func(on bool) {
+	boolChk = widget.NewCheck("Boolean mode", func(on bool) {
 		u.boolMode = on
 
 		if on {
@@ -146,10 +169,13 @@ func (u *ui) build(w fyne.Window) fyne.CanvasObject {
 		}
 	})
 
+	rankerSel.SetSelected("BM25")
+
 	u.resultsBox = container.NewVBox()
 
 	u.importBtn = widget.NewButtonWithIcon("Import…", theme.FolderOpenIcon(), func() { u.importFile(w) })
 	docsBtn := widget.NewButtonWithIcon("Documents…", theme.StorageIcon(), func() { u.showDocuments(w) })
+	settingsBtn := widget.NewButtonWithIcon("Settings…", theme.SettingsIcon(), func() { u.showSettings(w) })
 	helpBtn := widget.NewButtonWithIcon("Help", theme.HelpIcon(), func() { u.showHelp(w) })
 
 	u.progress = widget.NewProgressBarInfinite()
@@ -166,7 +192,7 @@ func (u *ui) build(w fyne.Window) fyne.CanvasObject {
 		widget.NewSeparator(),
 		fuzzyChk, boolChk,
 	)
-	actions := container.NewHBox(u.importBtn, docsBtn, helpBtn)
+	actions := container.NewHBox(u.importBtn, docsBtn, settingsBtn, helpBtn)
 	controls := container.NewBorder(nil, nil, nil, actions, modeControls)
 
 	top := container.NewVBox(queryBar, controls, widget.NewSeparator())
@@ -180,6 +206,15 @@ const helpMarkdown = "" +
 	"## Plain search\n" +
 	"Type one or more words; results are ranked by relevance (BM25 or TF-IDF).\n\n" +
 	"- `memory safety` — documents mentioning either word, best matches first\n\n" +
+	"## Semantic\n" +
+	"Pick **Semantic** to search by *description* instead of exact words. " +
+	"Your text is sent to a word predictor, which proposes the words most " +
+	"likely to appear in matching documents; those predicted words are then " +
+	"searched and highlighted, and listed in the status bar. Fuzzy and " +
+	"Boolean mode do not apply here.\n\n" +
+	"- `язык со сборкой мусора` — predicts *сборщика, владения, …* and finds them\n" +
+	"- The default predictor is offline (corpus co-occurrence plus a small " +
+	"thesaurus); a real LLM can be plugged in without changing the workflow.\n\n" +
 	"## Fuzzy\n" +
 	"Tick **Fuzzy** to tolerate typos: `memroy` still finds *memory*.\n\n" +
 	"## Boolean mode\n" +
@@ -198,7 +233,15 @@ const helpMarkdown = "" +
 	"- `paradigm=functional` — exact field match\n" +
 	"- `paradigm!=object-oriented` — exclude a field value\n\n" +
 	"## Combine everything\n" +
-	"`(go OR rust) AND year>=2010 NOT \"garbage collector\"`\n"
+	"`(go OR rust) AND year>=2010 NOT \"garbage collector\"`\n\n" +
+	"## Settings\n" +
+	"Open **Settings…** to choose where the index is stored and to tune ranking:\n\n" +
+	"- **Index storage** — pick a folder for a durable on-disk index, or leave " +
+	"empty for an in-memory index. A non-empty folder with an existing index is " +
+	"loaded as the working corpus; otherwise the current corpus is written to it.\n" +
+	"- **Fuzzy distance** — maximum edit distance for fuzzy matching (1 or 2).\n" +
+	"- **BM25 k1 / b** — term-frequency saturation and length normalisation.\n\n" +
+	"Applying settings rebuilds the engines without restarting the program.\n"
 
 func (u *ui) showHelp(w fyne.Window) {
 	rt := widget.NewRichTextFromMarkdown(helpMarkdown)
@@ -206,6 +249,158 @@ func (u *ui) showHelp(w fyne.Window) {
 	scroll := container.NewVScroll(rt)
 	scroll.SetMinSize(fyne.NewSize(540, 480))
 	dialog.ShowCustom("Query help", "Got it", scroll, w)
+}
+
+func (u *ui) storageSummary() string {
+	if u.dataDir == "" {
+		return "Using an in-memory index (changes are not persisted)."
+	}
+	return "Durable segmented index at " + u.dataDir + " (changes are flushed to disk)."
+}
+
+func (u *ui) showSettings(w fyne.Window) {
+	storageEntry := widget.NewEntry()
+	storageEntry.SetPlaceHolder("(in-memory — durable index disabled)")
+	storageEntry.SetText(u.dataDir)
+
+	browseBtn := widget.NewButtonWithIcon("Browse…", theme.FolderOpenIcon(), func() {
+		if nativeFileDialogAvailable {
+			path, ok, err := nativeOpenFolder("Choose a folder for the durable index")
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
+			if ok {
+				storageEntry.SetText(path)
+			}
+			return
+		}
+		dialog.ShowFolderOpen(func(lu fyne.ListableURI, err error) {
+			if err != nil || lu == nil {
+				return
+			}
+			storageEntry.SetText(lu.Path())
+		}, w)
+	})
+	memBtn := widget.NewButton("In-memory", func() { storageEntry.SetText("") })
+	storageRow := container.NewBorder(nil, nil, nil,
+		container.NewHBox(browseBtn, memBtn), storageEntry)
+
+	fuzzySel := widget.NewSelect([]string{"1", "2"}, nil)
+	fuzzySel.SetSelected(strconv.Itoa(u.fuzzyDist))
+
+	k1Entry := widget.NewEntry()
+	k1Entry.SetText(strconv.FormatFloat(u.bm25Params.K1, 'g', -1, 64))
+	bEntry := widget.NewEntry()
+	bEntry.SetText(strconv.FormatFloat(u.bm25Params.B, 'g', -1, 64))
+
+	form := widget.NewForm(
+		widget.NewFormItem("Index storage", storageRow),
+		widget.NewFormItem("Fuzzy distance", fuzzySel),
+		widget.NewFormItem("BM25 k1", k1Entry),
+		widget.NewFormItem("BM25 b", bEntry),
+	)
+	form.Items[0].HintText = "Folder for a durable segmented index; empty = in-memory."
+	form.Items[2].HintText = "Term-frequency saturation (typical 1.2–2.0)."
+	form.Items[3].HintText = "Length normalisation, 0–1 (typical 0.75)."
+
+	content := container.NewVScroll(form)
+	content.SetMinSize(fyne.NewSize(640, 380))
+
+	dialog.ShowCustomConfirm("Settings", "Apply", "Cancel", content, func(ok bool) {
+		if !ok {
+			return
+		}
+		k1, err := strconv.ParseFloat(strings.TrimSpace(k1Entry.Text), 64)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("invalid BM25 k1: %v", err), w)
+			return
+		}
+		b, err := strconv.ParseFloat(strings.TrimSpace(bEntry.Text), 64)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("invalid BM25 b: %v", err), w)
+			return
+		}
+		if k1 < 0 || b < 0 || b > 1 {
+			dialog.ShowError(fmt.Errorf("k1 must be ≥ 0 and b in [0, 1]"), w)
+			return
+		}
+		dist := 1
+		if fuzzySel.Selected != "" {
+			dist, _ = strconv.Atoi(fuzzySel.Selected)
+		}
+		dir := strings.TrimSpace(storageEntry.Text)
+
+		u.fuzzyDist = dist
+		u.setBusy(true)
+		u.status.SetText("Applying settings …")
+		go func() {
+			err := u.rebuildAll(dir, ranking.BM25Params{K1: k1, B: b})
+			fyne.Do(func() {
+				u.setBusy(false)
+				if err != nil {
+					dialog.ShowError(err, w)
+					u.setStatus()
+					return
+				}
+				u.setStatus()
+				if u.query != "" {
+					u.runSearch(u.query)
+				}
+				dialog.ShowInformation("Settings applied", u.storageSummary(), w)
+			})
+		}()
+	}, w)
+}
+
+func (u *ui) rebuildAll(dir string, params ranking.BM25Params) error {
+	cfg := searchConfig(ranking.NewBM25(params))
+	corpus := u.corpus
+
+	var bm *engine.Engine
+	var err error
+	if dir != "" {
+		idx, oerr := index.OpenSegmented(dir)
+		if oerr != nil {
+			return oerr
+		}
+		if bm, err = engine.NewEngineWithIndex(cfg, idx); err != nil {
+			return err
+		}
+		if existing := docsFromIndex(idx); len(existing) > 0 {
+			corpus = existing
+		} else {
+			if err = bm.Index(corpus); err != nil {
+				return err
+			}
+			if err = bm.Flush(); err != nil {
+				return err
+			}
+		}
+	} else {
+		if bm, err = engine.NewEngine(cfg); err != nil {
+			return err
+		}
+		if err = bm.Index(corpus); err != nil {
+			return err
+		}
+	}
+
+	tf, err := engine.NewEngine(searchConfig(ranking.NewTFIDF()))
+	if err != nil {
+		return err
+	}
+	if err = tf.Index(corpus); err != nil {
+		return err
+	}
+
+	u.corpus = corpus
+	u.bm25, u.tfidf = bm, tf
+	u.predictor = semantic.NewCorpusPredictor(corpus, u.analyzer.Analyze)
+	u.bm25Params = params
+	u.dataDir = dir
+	u.fuzzy = nil
+	return nil
 }
 
 func (u *ui) setBusy(b bool) {
@@ -232,19 +427,33 @@ func (u *ui) runSearch(query string) {
 	}
 
 	boolMode := u.boolMode
+	semanticMode := u.semanticMode()
 	u.setBusy(true)
 	u.status.SetText(fmt.Sprintf("Searching the index for %q (%s) …", query, u.modeLabel()))
 
 	go func() {
-		eng := u.engineFor()
-
 		var (
-			results []searchinator.Result
-			err     error
+			results   []searchinator.Result
+			err       error
+			predicted []string
 		)
-		if boolMode {
+
+		eng := u.engineFor()
+		hl := eng
+		hlQuery := query
+		switch {
+		case semanticMode:
+			hl = u.bm25
+			predicted, err = u.predictor.Predict(query, 6)
+			if err == nil {
+				hlQuery = strings.Join(predicted, " ")
+				if strings.TrimSpace(hlQuery) != "" {
+					results, err = u.bm25.Search(hlQuery)
+				}
+			}
+		case boolMode:
 			results, err = eng.SearchBool(query)
-		} else {
+		default:
 			results, err = eng.Search(query)
 		}
 
@@ -254,8 +463,8 @@ func (u *ui) runSearch(query string) {
 		)
 		if err == nil {
 			for _, r := range results {
-				occ += eng.TermOccurrences(r.Document.ID, query)
-				sp, _ := eng.Highlights(r.Document.ID, query)
+				occ += hl.TermOccurrences(r.Document.ID, hlQuery)
+				sp, _ := hl.Highlights(r.Document.ID, hlQuery)
 				spans = append(spans, sp)
 			}
 		}
@@ -263,7 +472,7 @@ func (u *ui) runSearch(query string) {
 		fyne.Do(func() {
 			u.setBusy(false)
 			if err != nil {
-				u.results, u.resultSpans, u.occurrences = nil, nil, 0
+				u.results, u.resultSpans, u.occurrences, u.predicted = nil, nil, 0, nil
 				u.renderResults()
 				u.status.SetText("Error: " + err.Error())
 				return
@@ -271,6 +480,7 @@ func (u *ui) runSearch(query string) {
 			u.results = results
 			u.resultSpans = spans
 			u.occurrences = occ
+			u.predicted = predicted
 			u.status.SetText(fmt.Sprintf("Found %d matches in %d documents — rendering …", occ, len(results)))
 			u.renderResults()
 			u.setStatus()
@@ -278,7 +488,12 @@ func (u *ui) runSearch(query string) {
 	}()
 }
 
+func (u *ui) semanticMode() bool { return u.ranker == "Semantic" }
+
 func (u *ui) modeLabel() string {
+	if u.semanticMode() {
+		return "Semantic (predicted words)"
+	}
 	mode := u.ranker
 	if u.useFuzzy {
 		mode = "BM25 + fuzzy"
@@ -367,8 +582,7 @@ func (u *ui) startImport(path string, w fyne.Window) {
 	if u.busy {
 		return
 	}
-	u.busy = true
-	u.importBtn.Disable()
+	u.setBusy(true)
 	u.status.SetText("Indexing " + filepath.Base(path) + " …")
 
 	go func() {
@@ -381,8 +595,7 @@ func (u *ui) startImport(path string, w fyne.Window) {
 		}
 
 		fyne.Do(func() {
-			u.busy = false
-			u.importBtn.Enable()
+			u.setBusy(false)
 			if err != nil {
 				dialog.ShowError(err, w)
 				u.setStatus()
@@ -417,6 +630,12 @@ func (u *ui) addDocument(doc searchinator.Document) error {
 	}
 	if !replaced {
 		u.corpus = append(u.corpus, doc)
+	}
+
+	if cp, ok := u.predictor.(*semantic.CorpusPredictor); ok && !replaced {
+		cp.Index([]searchinator.Document{doc})
+	} else {
+		u.predictor = semantic.NewCorpusPredictor(u.corpus, u.analyzer.Analyze)
 	}
 
 	if u.dataDir != "" {
@@ -481,6 +700,8 @@ func (u *ui) removeDocument(id string) error {
 			break
 		}
 	}
+
+	u.predictor = semantic.NewCorpusPredictor(u.corpus, u.analyzer.Analyze)
 	return nil
 }
 
@@ -529,7 +750,9 @@ func (u *ui) buildFuzzy() *engine.Engine {
 			analysis.NewLowercaseFilter(),
 			analysis.NewPunctuationFilter(),
 			analysis.NewStopWordsFilter(analysis.DefaultEnglishStopWords()),
+			analysis.NewStopWordsFilter(analysis.DefaultRussianStopWords()),
 			analysis.NewPorterStemmer(),
+			analysis.NewRussianStemmer(),
 			analysis.NewFuzzyFilter(vocab, u.fuzzyDist),
 		),
 		Ranker: ranking.NewBM25(ranking.DefaultBM25Params()),
@@ -556,21 +779,32 @@ func (u *ui) spansFor(docID string) []highlight.Span {
 
 func (u *ui) setStatus() {
 	s := u.bm25.Stats()
-	u.status.SetText(fmt.Sprintf("Mode: %s   |   %d results, %d words found   |   corpus: %d docs, %d terms, avg %.1f tokens",
-		u.modeLabel(), len(u.results), u.occurrences, s.DocumentCount, s.TermCount, s.AverageDocumentLength))
+	base := fmt.Sprintf("Mode: %s   |   %d results, %d words found   |   corpus: %d docs, %d terms, avg %.1f tokens",
+		u.modeLabel(), len(u.results), u.occurrences, s.DocumentCount, s.TermCount, s.AverageDocumentLength)
+	if u.semanticMode() && u.query != "" {
+		if len(u.predicted) > 0 {
+			base += "   |   predicted words: " + strings.Join(u.predicted, ", ")
+		} else {
+			base += "   |   predicted words: (none)"
+		}
+	}
+	u.status.SetText(base)
 }
 
-func englishConfig(ranker ranking.Ranker) engine.Config {
-	return engine.Config{
-		Analyzer: analysis.NewPipelineAnalyzer(
-			analysis.NewWhitespaceTokenizer(),
-			analysis.NewLowercaseFilter(),
-			analysis.NewPunctuationFilter(),
-			analysis.NewStopWordsFilter(analysis.DefaultEnglishStopWords()),
-			analysis.NewPorterStemmer(),
-		),
-		Ranker: ranker,
-	}
+func searchAnalyzer() analysis.Analyzer {
+	return analysis.NewPipelineAnalyzer(
+		analysis.NewWhitespaceTokenizer(),
+		analysis.NewLowercaseFilter(),
+		analysis.NewPunctuationFilter(),
+		analysis.NewStopWordsFilter(analysis.DefaultEnglishStopWords()),
+		analysis.NewStopWordsFilter(analysis.DefaultRussianStopWords()),
+		analysis.NewPorterStemmer(),
+		analysis.NewRussianStemmer(),
+	)
+}
+
+func searchConfig(ranker ranking.Ranker) engine.Config {
+	return engine.Config{Analyzer: searchAnalyzer(), Ranker: ranker}
 }
 
 func metaTag(meta map[string]any) string {
