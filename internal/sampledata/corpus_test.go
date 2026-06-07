@@ -26,8 +26,8 @@ func TestExampleQuery_DataDriven(t *testing.T) {
 		t.Fatalf("ExampleQuery() = %q, want a derived example", q)
 	}
 
-	if !strings.Contains(q, "programming") {
-		t.Errorf("ExampleQuery() = %q, want it to include 'programming'", q)
+	if !strings.Contains(q, "программирования") {
+		t.Errorf("ExampleQuery() = %q, want it to include 'программирования'", q)
 	}
 
 	if q2 := ExampleQuery(); q2 != q {

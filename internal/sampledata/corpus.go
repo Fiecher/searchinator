@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Fiecher/searchinator"
 	"github.com/Fiecher/searchinator/internal/docload"
@@ -72,8 +74,13 @@ func splitFrontMatter(data []byte) (body []byte, meta map[string]any) {
 }
 
 var exampleStop = map[string]bool{
+
 	"that": true, "with": true, "this": true, "from": true, "have": true,
 	"used": true, "which": true, "their": true, "there": true, "into": true,
+
+	"который": true, "которая": true, "которые": true, "благодаря": true,
+	"включая": true, "поддерживает": true, "поддержку": true, "обеспечивающий": true,
+	"общего": true, "назначения": true, "своей": true, "вместе": true,
 }
 
 func ExampleQuery() string { return ExampleQueryFrom(Corpus()) }
@@ -86,7 +93,7 @@ func ExampleQueryFrom(docs []searchinator.Document) string {
 	freq := map[string]int{}
 	for _, d := range docs {
 		for _, w := range words(d.Text) {
-			if len(w) >= 5 && !exampleStop[w] {
+			if utf8.RuneCountInString(w) >= 5 && !exampleStop[w] {
 				freq[w]++
 			}
 		}
@@ -111,7 +118,7 @@ func ExampleQueryFrom(docs []searchinator.Document) string {
 
 func words(text string) []string {
 	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return r < 'a' || r > 'z'
+		return !unicode.IsLetter(r)
 	})
 }
 
@@ -132,7 +139,7 @@ func rankByFreq(freq map[string]int) []string {
 func firstPhrase(text string, n int) string {
 	var picked []string
 	for _, w := range words(text) {
-		if len(w) >= 4 {
+		if utf8.RuneCountInString(w) >= 4 {
 			picked = append(picked, w)
 			if len(picked) == n {
 				break
