@@ -47,6 +47,7 @@ func main() {
 		fmt.Printf("%-8s  score=%.4f\n", r.Document.ID, r.Score)
 	}
 }
+
 ```
 
 ## Running the Demo
