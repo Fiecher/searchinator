@@ -34,6 +34,21 @@ func EnglishConfig() Config {
 	}
 }
 
+func BilingualConfig() Config {
+	return Config{
+		Analyzer: analysis.NewPipelineAnalyzer(
+			analysis.NewWhitespaceTokenizer(),
+			analysis.NewLowercaseFilter(),
+			analysis.NewPunctuationFilter(),
+			analysis.NewStopWordsFilter(analysis.DefaultEnglishStopWords()),
+			analysis.NewStopWordsFilter(analysis.DefaultRussianStopWords()),
+			analysis.NewPorterStemmer(),
+			analysis.NewRussianStemmer(),
+		),
+		Ranker: ranking.NewBM25(ranking.DefaultBM25Params()),
+	}
+}
+
 func FuzzyConfig(vocab []string, maxDistance int) Config {
 	return Config{
 		Analyzer: analysis.NewPipelineAnalyzer(
