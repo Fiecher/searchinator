@@ -182,6 +182,7 @@ func (u *ui) build(w fyne.Window) fyne.CanvasObject {
 	u.progress.Hide()
 
 	u.status = widget.NewLabel("")
+	u.status.Wrapping = fyne.TextWrapWord
 	u.setStatus()
 	u.renderResults()
 
@@ -447,9 +448,10 @@ func (u *ui) runSearch(query string) {
 			predicted, err = u.predictor.Predict(query, 6)
 			if err == nil {
 				hlQuery = strings.Join(predicted, " ")
-				if strings.TrimSpace(hlQuery) != "" {
-					results, err = u.bm25.Search(hlQuery)
+				if strings.TrimSpace(hlQuery) == "" {
+					hlQuery = query
 				}
+				results, err = u.bm25.Search(hlQuery)
 			}
 		case boolMode:
 			results, err = eng.SearchBool(query)
