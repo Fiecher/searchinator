@@ -36,3 +36,6 @@ bin/
 
 # Durable segmented index data (created by the -data flag / demos)
 /var/
+
+# Coursework docs (presentation, typst sources, build artifacts)
+/docs/

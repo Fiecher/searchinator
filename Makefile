@@ -1,10 +1,13 @@
-.PHONY: all build test cover vet fmt fmt-check run demo server bench clean tidy help
+.PHONY: all build test cover vet fmt fmt-check run demo server bench clean tidy help docs
 
 BIN_DIR := bin
 GUI     := ./cmd/gui
 SERVER  := ./cmd/server
 GUI_BIN := $(BIN_DIR)/searchinator-gui
 ADDR    := :8080
+
+TYPST     := typst
+DOCS_DIR  := docs
 
 export CGO_ENABLED := 1
 
@@ -47,6 +50,9 @@ bench:
 
 tidy: ## Tidy go.mod / go.sum
 	go mod tidy
+
+docs: ## Compile the coursework Typst document to PDF (requires typst + powershell)
+	powershell -NoProfile -Command "& '$(TYPST)' compile (Get-ChildItem '$(DOCS_DIR)/*.typ').FullName"
 
 clean:
 	rm -rf $(BIN_DIR) coverage.out

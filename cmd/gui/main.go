@@ -113,7 +113,7 @@ func main() {
 
 	a := app.New()
 	a.SetIcon(appIcon)
-	w := a.NewWindow("searchinator — full-text search demo")
+	w := a.NewWindow("searchinator demo")
 	w.SetIcon(appIcon)
 	w.Resize(fyne.NewSize(760, 560))
 	w.SetContent(u.build(w))
